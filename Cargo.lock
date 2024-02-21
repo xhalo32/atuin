@@ -304,6 +304,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "atuin-daemon"
+version = "18.0.1"
+
+[[package]]
 name = "atuin-server"
 version = "18.1.0"
 dependencies = [
