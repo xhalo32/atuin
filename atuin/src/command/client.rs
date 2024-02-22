@@ -12,6 +12,7 @@ mod sync;
 #[cfg(feature = "sync")]
 mod account;
 
+mod daemon;
 mod default_config;
 mod doctor;
 mod dotfiles;
@@ -66,6 +67,9 @@ pub enum Cmd {
 
     #[command()]
     Doctor,
+
+    #[command()]
+    Daemon,
 
     /// Print example configuration
     #[command()]
@@ -133,6 +137,8 @@ impl Cmd {
                 default_config::run();
                 Ok(())
             }
+
+            Self::Daemon => daemon::run(&settings).await,
         }
     }
 }
