@@ -340,14 +340,14 @@ pub struct Keys {
 #[derive(Clone, Debug, Deserialize)]
 pub struct Daemon {
     pub enabled: bool,
-    pub socked_path: String,
+    pub socket_path: String,
 }
 
 impl Default for Daemon {
     fn default() -> Self {
         Self {
             enabled: false,
-            socked_path: "".to_string(),
+            socket_path: "".to_string(),
         }
     }
 }
