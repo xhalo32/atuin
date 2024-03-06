@@ -329,6 +329,8 @@ dependencies = [
  "tonic-build",
  "tonic-types",
  "tower",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
@@ -4196,9 +4198,11 @@ dependencies = [
  "once_cell",
  "regex",
  "sharded-slab",
+ "smallvec",
  "thread_local",
  "tracing",
  "tracing-core",
+ "tracing-log",
 ]
 
 [[package]]
