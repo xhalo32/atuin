@@ -22,7 +22,9 @@ use unicode_width::UnicodeWidthStr;
 use atuin_client::{
     database::{current_context, Database},
     history::{store::HistoryStore, History, HistoryStats},
-    settings::{CursorStyle, ExitMode, FilterMode, KeymapMode, SearchMode, Settings},
+    settings::{
+        CursorStyle, Display, ExitMode, FilterMode, KeymapMode, SearchMode, Settings, Styles,
+    },
 };
 
 use super::{
@@ -260,11 +262,11 @@ impl State {
     }
 
     fn handle_search_up(&mut self, settings: &Settings, enable_exit: bool) -> InputAction {
-        self.handle_search_scroll_one_line(settings, enable_exit, settings.invert)
+        self.handle_search_scroll_one_line(settings, enable_exit, settings.display.invert)
     }
 
     fn handle_search_down(&mut self, settings: &Settings, enable_exit: bool) -> InputAction {
-        self.handle_search_scroll_one_line(settings, enable_exit, !settings.invert)
+        self.handle_search_scroll_one_line(settings, enable_exit, !settings.display.invert)
     }
 
     fn handle_search_accept(&mut self, settings: &Settings) -> InputAction {
@@ -501,19 +503,19 @@ impl State {
             KeyCode::Char(c) => {
                 self.search.input.insert(c);
             }
-            KeyCode::PageDown if !settings.invert => {
+            KeyCode::PageDown if !settings.display.invert => {
                 let scroll_len = self.results_state.max_entries() - settings.scroll_context_lines;
                 self.scroll_down(scroll_len);
             }
-            KeyCode::PageDown if settings.invert => {
+            KeyCode::PageDown if settings.display.invert => {
                 let scroll_len = self.results_state.max_entries() - settings.scroll_context_lines;
                 self.scroll_up(scroll_len);
             }
-            KeyCode::PageUp if !settings.invert => {
+            KeyCode::PageUp if !settings.display.invert => {
                 let scroll_len = self.results_state.max_entries() - settings.scroll_context_lines;
                 self.scroll_up(scroll_len);
             }
-            KeyCode::PageUp if settings.invert => {
+            KeyCode::PageUp if settings.display.invert => {
                 let scroll_len = self.results_state.max_entries() - settings.scroll_context_lines;
                 self.scroll_down(scroll_len);
             }
@@ -543,21 +545,21 @@ impl State {
         stats: Option<HistoryStats>,
         settings: &Settings,
     ) {
-        let compact = match settings.style {
-            atuin_client::settings::Style::Auto => f.size().height < 14,
-            atuin_client::settings::Style::Compact => true,
-            atuin_client::settings::Style::Full => false,
+        let compact = match settings.display.style {
+            Display::Auto => f.size().height < 14,
+            Display::Compact => true,
+            Display::Full => false,
         };
-        let invert = settings.invert;
+        let invert = settings.display.invert;
         let border_size = if compact { 0 } else { 1 };
         let preview_width = f.size().width - 2;
-        let preview_height = if settings.show_preview && self.tab_index == 0 {
+        let preview_height = if settings.display.show_preview && self.tab_index == 0 {
             let longest_command = results
                 .iter()
                 .max_by(|h1, h2| h1.command.len().cmp(&h2.command.len()));
             longest_command.map_or(0, |v| {
                 std::cmp::min(
-                    settings.max_preview_height,
+                    settings.display.max_preview_height,
                     v.command
                         .split('\n')
                         .map(|line| {
@@ -572,8 +574,10 @@ impl State {
         } else {
             1
         };
-        let show_help = settings.show_help && (!compact || f.size().height > 1);
-        let show_tabs = settings.show_tabs;
+
+        let show_help = settings.display.show_help && (!compact || f.size().height > 1);
+        let show_tabs = settings.display.show_tabs;
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(0)
@@ -609,7 +613,7 @@ impl State {
         // TODO: this should be split so that we have one interactive search container that is
         // EITHER a search box or an inspector. But I'm not doing that now, way too much atm.
         // also allocate less 🙈
-        let titles = TAB_TITLES.iter().copied().map(Line::from).collect();
+        let titles: Vec<_> = TAB_TITLES.iter().copied().map(Line::from).collect();
 
         let tabs = Tabs::new(titles)
             .block(Block::default().borders(Borders::NONE))
@@ -648,8 +652,13 @@ impl State {
 
         match self.tab_index {
             0 => {
-                let results_list =
-                    Self::build_results_list(style, results, self.keymap_mode, &self.now);
+                let results_list = Self::build_results_list(
+                    style,
+                    results,
+                    self.keymap_mode,
+                    &self.now,
+                    &settings.display.styles,
+                );
                 f.render_stateful_widget(results_list, results_list_chunk, &mut self.results_state);
             }
 
@@ -775,12 +784,14 @@ impl State {
         results: &'a [History],
         keymap_mode: KeymapMode,
         now: &'a dyn Fn() -> OffsetDateTime,
+        styles: &'a Styles,
     ) -> HistoryList<'a> {
         let results_list = HistoryList::new(
             results,
             style.invert,
             keymap_mode == KeymapMode::VimNormal,
             now,
+            styles,
         );
 
         if style.compact {
@@ -946,13 +957,13 @@ pub async fn history(
     mut db: impl Database,
     history_store: &HistoryStore,
 ) -> Result<String> {
-    let stdout = Stdout::new(settings.inline_height > 0)?;
+    let stdout = Stdout::new(settings.display.inline_height > 0)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::with_options(
         backend,
         TerminalOptions {
-            viewport: if settings.inline_height > 0 {
-                Viewport::Inline(settings.inline_height)
+            viewport: if settings.display.inline_height > 0 {
+                Viewport::Inline(settings.display.inline_height)
             } else {
                 Viewport::Fullscreen
             },
@@ -1005,7 +1016,7 @@ pub async fn history(
             value => value,
         },
         current_cursor: None,
-        now: if settings.prefers_reduced_motion {
+        now: if settings.display.prefers_reduced_motion {
             let now = OffsetDateTime::now_utc();
             Box::new(move || now)
         } else {
@@ -1092,7 +1103,7 @@ pub async fn history(
 
     app.finalize_keymap_cursor(settings);
 
-    if settings.inline_height > 0 {
+    if settings.display.inline_height > 0 {
         terminal.clear()?;
     }
 

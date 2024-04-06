@@ -1,11 +1,11 @@
 use std::time::Duration;
 
-use atuin_client::history::History;
+use atuin_client::{history::History, settings::Styles};
 use atuin_common::utils::Escapable as _;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Color, Modifier, Style, Stylize},
     widgets::{Block, StatefulWidget, Widget},
 };
 use time::OffsetDateTime;
@@ -19,6 +19,7 @@ pub struct HistoryList<'a> {
     /// Apply an alternative highlighting to the selected row
     alternate_highlight: bool,
     now: &'a dyn Fn() -> OffsetDateTime,
+    styles: &'a Styles,
 }
 
 #[derive(Default)]
@@ -70,6 +71,7 @@ impl<'a> StatefulWidget for HistoryList<'a> {
             inverted: self.inverted,
             alternate_highlight: self.alternate_highlight,
             now: &self.now,
+            styles: self.styles,
         };
 
         for item in self.history.iter().skip(state.offset).take(end - start) {
@@ -91,6 +93,7 @@ impl<'a> HistoryList<'a> {
         inverted: bool,
         alternate_highlight: bool,
         now: &'a dyn Fn() -> OffsetDateTime,
+        styles: &'a Styles,
     ) -> Self {
         Self {
             history,
@@ -98,6 +101,7 @@ impl<'a> HistoryList<'a> {
             inverted,
             alternate_highlight,
             now,
+            styles,
         }
     }
 
@@ -130,6 +134,7 @@ struct DrawState<'a> {
     inverted: bool,
     alternate_highlight: bool,
     now: &'a dyn Fn() -> OffsetDateTime,
+    styles: &'a Styles,
 }
 
 // longest line prefix I could come up with
@@ -140,6 +145,7 @@ static _ASSERT: () = assert!(SPACES.len() == PREFIX_LENGTH as usize);
 
 impl DrawState<'_> {
     fn index(&mut self) {
+        let style = self.styles.index.unwrap_or_else(|| Style::default());
         // these encode the slices of `" > "`, `" {n} "`, or `"   "` in a compact form.
         // Yes, this is a hack, but it makes me feel happy
         static SLICES: &str = " > 1 2 3 4 5 6 7 8 9   ";
@@ -147,22 +153,29 @@ impl DrawState<'_> {
         let i = self.y as usize + self.state.offset;
         let i = i.checked_sub(self.state.selected);
         let i = i.unwrap_or(10).min(10) * 2;
-        self.draw(&SLICES[i..i + 3], Style::default());
+        self.draw(&SLICES[i..i + 3], style);
     }
 
     fn duration(&mut self, h: &History) {
-        let status = Style::default().fg(if h.success() {
-            Color::Green
+        let style = if h.success() {
+            self.styles
+                .duration_success
+                .unwrap_or_else(|| Style::default().fg(Color::Green))
         } else {
-            Color::Red
-        });
+            self.styles
+                .duration_failure
+                .unwrap_or_else(|| Style::default().fg(Color::Red))
+        };
         let duration = Duration::from_nanos(u64::try_from(h.duration).unwrap_or(0));
-        self.draw(&format_duration(duration), status);
+        self.draw(&format_duration(duration), style);
     }
 
     #[allow(clippy::cast_possible_truncation)] // we know that time.len() will be <6
     fn time(&mut self, h: &History) {
-        let style = Style::default().fg(Color::Blue);
+        let style = self
+            .styles
+            .time
+            .unwrap_or_else(|| Style::default().fg(Color::Blue));
 
         // Account for the chance that h.timestamp is "in the future"
         // This would mean that "since" is negative, and the unwrap here
@@ -183,12 +196,16 @@ impl DrawState<'_> {
     }
 
     fn command(&mut self, h: &History) {
-        let mut style = Style::default();
-        if !self.alternate_highlight && (self.y as usize + self.state.offset == self.state.selected)
-        {
-            // if not applying alternative highlighting to the whole row, color the command
-            style = style.fg(Color::Red).add_modifier(Modifier::BOLD);
-        }
+        let alternate_highlight = self.alternate_highlight;
+        let selected = self.y as usize + self.state.offset == self.state.selected;
+
+        let style = if !alternate_highlight && selected {
+            self.styles
+                .command_selected
+                .unwrap_or_else(|| Style::default().fg(Color::Red).bold())
+        } else {
+            self.styles.command.unwrap_or_default()
+        };
 
         for section in h.command.escape_control().split_ascii_whitespace() {
             self.draw(" ", style);
