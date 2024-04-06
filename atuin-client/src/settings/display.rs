@@ -62,6 +62,17 @@ pub enum Display {
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Styles {
     #[serde(default, deserialize_with = "Variants::deserialize_style")]
+    pub index: Option<Style>,
+
+    #[serde(default, deserialize_with = "Variants::deserialize_style")]
+    pub duration_success: Option<Style>,
+    #[serde(default, deserialize_with = "Variants::deserialize_style")]
+    pub duration_failure: Option<Style>,
+
+    #[serde(default, deserialize_with = "Variants::deserialize_style")]
+    pub time: Option<Style>,
+
+    #[serde(default, deserialize_with = "Variants::deserialize_style")]
     pub command: Option<Style>,
     #[serde(default, deserialize_with = "Variants::deserialize_style")]
     pub command_selected: Option<Style>,

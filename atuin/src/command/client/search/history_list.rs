@@ -145,6 +145,7 @@ static _ASSERT: () = assert!(SPACES.len() == PREFIX_LENGTH as usize);
 
 impl DrawState<'_> {
     fn index(&mut self) {
+        let style = self.styles.index.unwrap_or_else(|| Style::default());
         // these encode the slices of `" > "`, `" {n} "`, or `"   "` in a compact form.
         // Yes, this is a hack, but it makes me feel happy
         static SLICES: &str = " > 1 2 3 4 5 6 7 8 9   ";
@@ -152,22 +153,29 @@ impl DrawState<'_> {
         let i = self.y as usize + self.state.offset;
         let i = i.checked_sub(self.state.selected);
         let i = i.unwrap_or(10).min(10) * 2;
-        self.draw(&SLICES[i..i + 3], Style::default());
+        self.draw(&SLICES[i..i + 3], style);
     }
 
     fn duration(&mut self, h: &History) {
-        let status = Style::default().fg(if h.success() {
-            Color::Green
+        let style = if h.success() {
+            self.styles
+                .duration_success
+                .unwrap_or_else(|| Style::default().fg(Color::Green))
         } else {
-            Color::Red
-        });
+            self.styles
+                .duration_failure
+                .unwrap_or_else(|| Style::default().fg(Color::Red))
+        };
         let duration = Duration::from_nanos(u64::try_from(h.duration).unwrap_or(0));
-        self.draw(&format_duration(duration), status);
+        self.draw(&format_duration(duration), style);
     }
 
     #[allow(clippy::cast_possible_truncation)] // we know that time.len() will be <6
     fn time(&mut self, h: &History) {
-        let style = Style::default().fg(Color::Blue);
+        let style = self
+            .styles
+            .time
+            .unwrap_or_else(|| Style::default().fg(Color::Blue));
 
         // Account for the chance that h.timestamp is "in the future"
         // This would mean that "since" is negative, and the unwrap here
