@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use atuin_client::{encryption, record::sqlite_store::SqliteStore, settings::Settings};
-use atuin_config::store::AliasStore;
+use atuin_dotfiles::store::AliasStore;
 use clap::{Parser, ValueEnum};
 use eyre::{Result, WrapErr};
 
@@ -56,20 +56,23 @@ impl Cmd {
     )
 )";
             const BIND_UP_ARROW: &str = r"
-# The up arrow keybinding has surprising behavior in Nu, and is disabled by default.
-# See https://github.com/atuinsh/atuin/issues/1025 for details
-# $env.config = (
-#     $env.config | upsert keybindings (
-#         $env.config.keybindings
-#         | append {
-#             name: atuin
-#             modifier: none
-#             keycode: up
-#             mode: [emacs, vi_normal, vi_insert]
-#             event: { send: executehostcommand cmd: (_atuin_search_cmd '--shell-up-key-binding') }
-#         }
-#     )
-# )
+$env.config = (
+    $env.config | upsert keybindings (
+        $env.config.keybindings
+        | append {
+            name: atuin
+            modifier: none
+            keycode: up
+            mode: [emacs, vi_normal, vi_insert]
+            event: {
+                until: [
+                    {send: menuup}
+                    {send: executehostcommand cmd: (_atuin_search_cmd '--shell-up-key-binding') }
+                ]
+            }
+        }
+    )
+)
 ";
             if !self.disable_ctrl_r {
                 println!("{BIND_CTRL_R}");
@@ -80,7 +83,27 @@ impl Cmd {
         }
     }
 
-    pub async fn run(self, settings: &Settings) -> Result<()> {
+    fn static_init(&self) {
+        match self.shell {
+            Shell::Zsh => {
+                zsh::init_static(self.disable_up_arrow, self.disable_ctrl_r);
+            }
+            Shell::Bash => {
+                bash::init_static(self.disable_up_arrow, self.disable_ctrl_r);
+            }
+            Shell::Fish => {
+                fish::init_static(self.disable_up_arrow, self.disable_ctrl_r);
+            }
+            Shell::Nu => {
+                self.init_nu();
+            }
+            Shell::Xonsh => {
+                xonsh::init_static(self.disable_up_arrow, self.disable_ctrl_r);
+            }
+        };
+    }
+
+    async fn dotfiles_init(&self, settings: &Settings) -> Result<()> {
         let record_store_path = PathBuf::from(settings.record_store_path.as_str());
         let sqlite_store = SqliteStore::new(record_store_path, settings.local_timeout).await?;
 
@@ -105,6 +128,16 @@ impl Cmd {
             Shell::Xonsh => {
                 xonsh::init(alias_store, self.disable_up_arrow, self.disable_ctrl_r).await?;
             }
+        }
+
+        Ok(())
+    }
+
+    pub async fn run(self, settings: &Settings) -> Result<()> {
+        if settings.dotfiles.enabled {
+            self.dotfiles_init(settings).await?;
+        } else {
+            self.static_init();
         }
 
         Ok(())

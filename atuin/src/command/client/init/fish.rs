@@ -1,7 +1,7 @@
-use atuin_config::store::AliasStore;
+use atuin_dotfiles::store::AliasStore;
 use eyre::Result;
 
-pub async fn init(store: AliasStore, disable_up_arrow: bool, disable_ctrl_r: bool) -> Result<()> {
+pub fn init_static(disable_up_arrow: bool, disable_ctrl_r: bool) {
     let base = include_str!("../../../shell/atuin.fish");
 
     println!("{base}");
@@ -32,9 +32,12 @@ bind -M insert \e\[A _atuin_bind_up";
         }
         println!("end");
     }
+}
 
-    let aliases = store.aliases().await?;
-    let aliases = atuin_config::shell::fish::build(&aliases[..]);
+pub async fn init(store: AliasStore, disable_up_arrow: bool, disable_ctrl_r: bool) -> Result<()> {
+    init_static(disable_up_arrow, disable_ctrl_r);
+
+    let aliases = atuin_dotfiles::shell::fish::config(&store).await;
 
     println!("{aliases}");
 

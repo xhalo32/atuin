@@ -1,5 +1,6 @@
 mod behaviour;
 pub mod display;
+mod dotfiles;
 mod input;
 mod stats;
 mod sync;
@@ -66,6 +67,7 @@ pub struct Settings {
 
     // Input
     pub enter_accept: bool,
+    pub smart_sort: bool,
     pub keymap_cursor: HashMap<String, CursorStyle>,
     pub keymap_mode: KeymapMode,
     pub keymap_mode_shell: KeymapMode,
@@ -73,6 +75,10 @@ pub struct Settings {
     pub keys: Keys,
     pub shell_up_key_binding: bool,
     pub word_jump_mode: WordJumpMode,
+
+    // Dotfiles
+    #[serde(default)]
+    pub dotfiles: dotfiles::Settings,
 
     // Paths
     pub db_path: String,
@@ -330,6 +336,7 @@ impl Settings {
             // muscle memory.
             // New users will get the new default, that is more similar to what they are used to.
             .set_default("enter_accept", false)?
+            .set_default("smart_sort", false)?
             .set_default("sync.records", false)?
             .set_default("keys.scroll_exits", true)?
             .set_default("keymap_mode", "emacs")?

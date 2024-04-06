@@ -15,6 +15,7 @@ pub struct Settings {
     pub prefers_reduced_motion: bool,
     pub show_preview: bool,
     pub show_help: bool,
+    pub show_tabs: bool,
     #[serde(alias = "display")]
     pub style: Display,
     #[serde(default)]
@@ -39,6 +40,7 @@ pub(crate) fn defaults(
         )?
         .set_default("show_preview", false)?
         .set_default("show_help", true)?
+        .set_default("show_tabs", true)?
         .set_default("style", "auto")?)
 }
 

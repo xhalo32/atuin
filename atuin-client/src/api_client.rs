@@ -25,7 +25,7 @@ use semver::Version;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use crate::{history::History, sync::hash_str};
+use crate::{history::History, sync::hash_str, utils::get_host_user};
 
 static APP_USER_AGENT: &str = concat!("atuin/", env!("CARGO_PKG_VERSION"),);
 
@@ -157,13 +157,17 @@ async fn handle_resp_error(resp: Response) -> Result<Response> {
         );
     }
 
-    if status.is_client_error() {
-        let error = resp.json::<ErrorResponse>().await?.reason;
-        bail!("Could not fetch history, client error: {error}.")
-    } else if status.is_server_error() {
-        let error = resp.json::<ErrorResponse>().await?.reason;
-        bail!("There was an error with the atuin sync service: {error}.\nIf the problem persists, contact the host")
-    } else if !status.is_success() {
+    if !status.is_success() {
+        if let Ok(error) = resp.json::<ErrorResponse>().await {
+            let reason = error.reason;
+
+            if status.is_client_error() {
+                bail!("Could not fetch history, client error {status}: {reason}.")
+            }
+
+            bail!("There was an error with the atuin sync service, server error {status}: {reason}.\nIf the problem persists, contact the host")
+        }
+
         bail!("There was an error with the atuin sync service: Status {status:?}.\nIf the problem persists, contact the host")
     }
 
@@ -236,13 +240,7 @@ impl<'a> Client<'a> {
         history_ts: OffsetDateTime,
         host: Option<String>,
     ) -> Result<SyncHistoryResponse> {
-        let host = host.unwrap_or_else(|| {
-            hash_str(&format!(
-                "{}:{}",
-                env::var("ATUIN_HOST_NAME").unwrap_or_else(|_| whoami::hostname()),
-                env::var("ATUIN_HOST_USER").unwrap_or_else(|_| whoami::username())
-            ))
-        });
+        let host = host.unwrap_or_else(|| hash_str(&get_host_user()));
 
         let url = format!(
             "{}/sync/history?sync_ts={}&history_ts={}&host={}",

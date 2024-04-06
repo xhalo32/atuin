@@ -12,10 +12,12 @@ mod sync;
 #[cfg(feature = "sync")]
 mod account;
 
-mod config;
 mod default_config;
+mod doctor;
+mod dotfiles;
 mod history;
 mod import;
+mod info;
 mod init;
 mod kv;
 mod search;
@@ -53,10 +55,17 @@ pub enum Cmd {
     Store(store::Cmd),
 
     #[command(subcommand)]
-    Config(config::Cmd),
+    Dotfiles(dotfiles::Cmd),
 
     #[command()]
     Init(init::Cmd),
+
+    /// Information about dotfiles locations and ENV vars
+    #[command()]
+    Info,
+
+    #[command()]
+    Doctor,
 
     /// Print example configuration
     #[command()]
@@ -70,22 +79,22 @@ impl Cmd {
             .build()
             .unwrap();
 
-        let res = runtime.block_on(self.run_inner());
+        let settings = Settings::new().wrap_err("could not load client settings")?;
+        let res = runtime.block_on(self.run_inner(settings));
 
         runtime.shutdown_timeout(std::time::Duration::from_millis(50));
 
         res
     }
 
-    async fn run_inner(self) -> Result<()> {
+    async fn run_inner(self, mut settings: Settings) -> Result<()> {
         Builder::new()
             .filter_level(log::LevelFilter::Off)
+            .filter_module("sqlx_sqlite::regexp", log::LevelFilter::Off)
             .parse_env("ATUIN_LOG")
             .init();
 
         tracing::trace!(command = ?self, "client command");
-
-        let mut settings = Settings::new().wrap_err("could not load client settings")?;
 
         let db_path = PathBuf::from(settings.db_path.as_str());
         let record_store_path = PathBuf::from(settings.record_store_path.as_str());
@@ -109,9 +118,16 @@ impl Cmd {
 
             Self::Store(store) => store.run(&settings, &db, sqlite_store).await,
 
-            Self::Config(config) => config.run(&settings, sqlite_store).await,
+            Self::Dotfiles(dotfiles) => dotfiles.run(&settings, sqlite_store).await,
 
             Self::Init(init) => init.run(&settings).await,
+
+            Self::Info => {
+                info::run(&settings);
+                Ok(())
+            }
+
+            Self::Doctor => doctor::run(&settings),
 
             Self::DefaultConfig => {
                 default_config::run();

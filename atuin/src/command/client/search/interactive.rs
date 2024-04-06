@@ -31,6 +31,7 @@ use super::{
     cursor::Cursor,
     engines::{SearchEngine, SearchState},
     history_list::{HistoryList, ListState, PREFIX_LENGTH},
+    sort,
 };
 
 use crate::{command::client::search::engines, VERSION};
@@ -67,6 +68,7 @@ pub struct State {
     results_len: usize,
     accept: bool,
     keymap_mode: KeymapMode,
+    prefix: bool,
     current_cursor: Option<CursorStyle>,
     tab_index: usize,
 
@@ -83,13 +85,21 @@ struct StyleState {
 }
 
 impl State {
-    async fn query_results(&mut self, db: &mut dyn Database) -> Result<Vec<History>> {
+    async fn query_results(
+        &mut self,
+        db: &mut dyn Database,
+        smart_sort: bool,
+    ) -> Result<Vec<History>> {
         let results = self.engine.query(&self.search, db).await?;
 
         self.results_state.select(0);
         self.results_len = results.len();
 
-        Ok(results)
+        if smart_sort {
+            Ok(sort::sort(self.search.input.as_str(), results))
+        } else {
+            Ok(results)
+        }
     }
 
     fn handle_input<W>(
@@ -193,35 +203,45 @@ impl State {
         let ctrl = input.modifiers.contains(KeyModifiers::CONTROL);
         let esc_allow_exit = !(self.tab_index == 0 && self.keymap_mode == KeymapMode::VimInsert);
 
+        // support ctrl-a prefix, like screen or tmux
+        if ctrl && input.code == KeyCode::Char('a') {
+            self.prefix = true;
+            return InputAction::Continue;
+        }
+
         // core input handling, common for all tabs
-        match input.code {
-            KeyCode::Char('c' | 'g') if ctrl => return InputAction::ReturnOriginal,
-            KeyCode::Esc if esc_allow_exit => {
-                return Self::handle_key_exit(settings);
-            }
-            KeyCode::Char('[') if ctrl && esc_allow_exit => {
-                return Self::handle_key_exit(settings);
-            }
-            KeyCode::Tab => {
-                return InputAction::Accept(self.results_state.selected());
-            }
+        let common: Option<InputAction> = match input.code {
+            KeyCode::Char('c' | 'g') if ctrl => Some(InputAction::ReturnOriginal),
+            KeyCode::Esc if esc_allow_exit => Some(Self::handle_key_exit(settings)),
+            KeyCode::Char('[') if ctrl && esc_allow_exit => Some(Self::handle_key_exit(settings)),
+            KeyCode::Tab => Some(InputAction::Accept(self.results_state.selected())),
             KeyCode::Char('o') if ctrl => {
                 self.tab_index = (self.tab_index + 1) % TAB_TITLES.len();
 
-                return InputAction::Continue;
+                Some(InputAction::Continue)
             }
 
-            _ => {}
+            _ => None,
+        };
+
+        if let Some(ret) = common {
+            self.prefix = false;
+
+            return ret;
         }
 
         // handle tab-specific input
-        match self.tab_index {
+        let action = match self.tab_index {
             0 => self.handle_search_input(settings, input),
 
             1 => super::inspector::input(self, settings, self.results_state.selected(), input),
 
             _ => panic!("invalid tab index on input"),
-        }
+        };
+
+        self.prefix = false;
+
+        action
     }
 
     fn handle_search_scroll_one_line(
@@ -268,7 +288,24 @@ impl State {
         // reset the state, will be set to true later if user really did change it
         self.switched_search_mode = false;
 
-        // First handle keymap specific keybindings.
+        // first up handle prefix mappings. these take precedence over all others
+        // eg, if a user types ctrl-a d, delete the history
+        if self.prefix {
+            // It'll be expanded.
+            #[allow(clippy::single_match)]
+            match input.code {
+                KeyCode::Char('d') => {
+                    return InputAction::Delete(self.results_state.selected());
+                }
+                KeyCode::Char('a') => {
+                    self.search.input.start();
+                    return InputAction::Continue;
+                }
+                _ => {}
+            }
+        }
+
+        // handle keymap specific keybindings.
         match self.keymap_mode {
             KeymapMode::VimNormal => match input.code {
                 KeyCode::Char('/') if !ctrl => {
@@ -370,7 +407,6 @@ impl State {
                 .next_word(&settings.word_chars, settings.word_jump_mode),
             KeyCode::Right => self.search.input.right(),
             KeyCode::Char('f') if ctrl => self.search.input.right(),
-            KeyCode::Char('a') if ctrl => self.search.input.start(),
             KeyCode::Home => self.search.input.start(),
             KeyCode::Char('e') if ctrl => self.search.input.end(),
             KeyCode::End => self.search.input.end(),
@@ -379,6 +415,21 @@ impl State {
                 .input
                 .remove_prev_word(&settings.word_chars, settings.word_jump_mode),
             KeyCode::Backspace => {
+                self.search.input.back();
+            }
+            KeyCode::Char('h' | '?') if ctrl => {
+                // Depending on the terminal, [Backspace] can be transmitted as
+                // \x08 or \x7F.  Also, [Ctrl+Backspace] can be transmitted as
+                // \x08 or \x7F or \x1F.  On the other hand, [Ctrl+h] and
+                // [Ctrl+?] are also transmitted as \x08 or \x7F by the
+                // terminals.
+                //
+                // The crossterm library translates \x08 and \x7F to C-h and
+                // Backspace, respectively.  With the extended keyboard
+                // protocol enabled, crossterm can faithfully translate
+                // [Ctrl+h] and [Ctrl+?] to C-h and C-?.  There is no perfect
+                // solution, but we treat C-h and C-? the same as backspace to
+                // suppress quirks as much as possible.
                 self.search.input.back();
             }
             KeyCode::Delete if ctrl => self
@@ -523,7 +574,10 @@ impl State {
         } else {
             1
         };
+
         let show_help = settings.display.show_help && (!compact || f.size().height > 1);
+        let show_tabs = settings.display.show_tabs;
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(0)
@@ -534,13 +588,13 @@ impl State {
                         Constraint::Length(1 + border_size),               // input
                         Constraint::Min(1),                                // results list
                         Constraint::Length(preview_height),                // preview
-                        Constraint::Length(1),                             // tabs
+                        Constraint::Length(if show_tabs { 1 } else { 0 }), // tabs
                         Constraint::Length(if show_help { 1 } else { 0 }), // header (sic)
                     ]
                 } else {
                     [
                         Constraint::Length(if show_help { 1 } else { 0 }), // header
-                        Constraint::Length(1),                             // tabs
+                        Constraint::Length(if show_tabs { 1 } else { 0 }), // tabs
                         Constraint::Min(1),                                // results list
                         Constraint::Length(1 + border_size),               // input
                         Constraint::Length(preview_height),                // preview
@@ -646,6 +700,11 @@ impl State {
         let input = self.build_input(style);
         f.render_widget(input, input_chunk);
 
+        let preview_width = if compact {
+            preview_width
+        } else {
+            preview_width - 2
+        };
         let preview =
             self.build_preview(results, compact, preview_width, preview_chunk.width.into());
         f.render_widget(preview, preview_chunk);
@@ -963,11 +1022,12 @@ pub async fn history(
         } else {
             Box::new(OffsetDateTime::now_utc)
         },
+        prefix: false,
     };
 
     app.initialize_keymap_cursor(settings);
 
-    let mut results = app.query_results(&mut db).await?;
+    let mut results = app.query_results(&mut db, settings.smart_sort).await?;
 
     let mut stats: Option<HistoryStats> = None;
     let accept;
@@ -1028,7 +1088,7 @@ pub async fn history(
             || initial_filter_mode != app.search.filter_mode
             || initial_search_mode != app.search_mode
         {
-            results = app.query_results(&mut db).await?;
+            results = app.query_results(&mut db, settings.smart_sort).await?;
         }
 
         stats = if app.tab_index == 0 {
@@ -1077,10 +1137,18 @@ pub async fn history(
     }
 }
 
-#[cfg(feature = "clipboard")]
+// cli-clipboard only works on Windows, Mac, and Linux.
+
+#[cfg(all(
+    feature = "clipboard",
+    any(target_os = "windows", target_os = "macos", target_os = "linux")
+))]
 fn set_clipboard(s: String) {
     cli_clipboard::set_contents(s).unwrap();
 }
 
-#[cfg(not(feature = "clipboard"))]
+#[cfg(not(all(
+    feature = "clipboard",
+    any(target_os = "windows", target_os = "macos", target_os = "linux")
+)))]
 fn set_clipboard(_s: String) {}

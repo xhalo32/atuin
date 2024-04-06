@@ -3,7 +3,7 @@ use eyre::{Context, Result};
 
 use atuin_client::{encryption, record::sqlite_store::SqliteStore, settings::Settings};
 
-use atuin_config::{shell::Alias, store::AliasStore};
+use atuin_dotfiles::{shell::Alias, store::AliasStore};
 
 #[derive(Subcommand, Debug)]
 #[command(infer_subcommands = true)]
@@ -54,6 +54,12 @@ impl Cmd {
     }
 
     pub async fn run(&self, settings: &Settings, store: SqliteStore) -> Result<()> {
+        if !settings.dotfiles.enabled {
+            eprintln!("Dotfiles are not enabled. Add\n\n[dotfiles]\nenabled = true\n\nto your configuration file to enable them.\n");
+            eprintln!("The default configuration file is located at ~/.config/atuin/config.toml.");
+            return Ok(());
+        }
+
         let encryption_key: [u8; 32] = encryption::load_key(settings)
             .context("could not load encryption key")?
             .into();

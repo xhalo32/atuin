@@ -11,8 +11,8 @@ homepage = { workspace = true }
 repository = { workspace = true }
 
 [dependencies]
-atuin-common = { path = "../atuin-common", version = "18.0.2" }
-atuin-server-database = { path = "../atuin-server-database", version = "18.0.2" }
+atuin-common = { path = "../atuin-common", version = "18.1.0" }
+atuin-server-database = { path = "../atuin-server-database", version = "18.1.0" }
 
 tracing = "0.1"
 time = { workspace = true }
@@ -32,7 +32,7 @@ tower = "0.4"
 tower-http = { version = "0.5.1", features = ["trace"] }
 reqwest = { workspace = true }
 rustls = "0.21"
-rustls-pemfile = "2.0"
+rustls-pemfile = "2.1"
 argon2 = "0.5.3"
 semver = { workspace = true }
 metrics-exporter-prometheus = "0.12.1"

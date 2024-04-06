@@ -18,7 +18,7 @@ sync = ["urlencoding", "reqwest", "sha2", "hex"]
 check-update = []
 
 [dependencies]
-atuin-common = { path = "../atuin-common", version = "18.0.2" }
+atuin-common = { path = "../atuin-common", version = "18.1.0" }
 
 log = { workspace = true }
 base64 = { workspace = true }
@@ -37,13 +37,12 @@ async-trait = { workspace = true }
 itertools = { workspace = true }
 rand = { workspace = true }
 shellexpand = "3"
-sqlx = { workspace = true, features = ["sqlite"] }
+sqlx = { workspace = true, features = ["sqlite", "regexp"] }
 minspan = "0.1.1"
 regex = "1.9.1"
 serde_regex = "1.1.0"
 fs-err = { workspace = true }
 sql-builder = "3"
-lazy_static = "1"
 memchr = "2.5"
 rmp = { version = "0.8.11" }
 typed-builder = { workspace = true }
